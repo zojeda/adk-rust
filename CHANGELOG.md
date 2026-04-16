@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Codex ChatGPT-subscription provider** (`adk-model`, `adk-cli`, `adk-rust`): Added `CodexResponsesClient` / `CodexResponsesConfig`, `--provider codex`, and convenience env detection via `CODEX_ACCESS_TOKEN` plus `CHATGPT_ACCOUNT_ID`. The CLI also loads existing Codex login state from the standard Codex credential stores.
+
+### Fixed
+
+- **OpenAI project header propagation** (`adk-model`): `OpenAICompatible` now sends `OpenAI-Project` when `project_id` is configured, and `OpenAIResponsesClient` now applies `OpenAIResponsesConfig::with_project()` to the underlying OpenAI client.
+
+### Documentation
+
+- **OpenAI vs Codex credential guidance** (`adk-cli`, `adk-model`, `adk-rust`, docs): Clarified that ChatGPT subscriptions do not replace `OPENAI_API_KEY` for OpenAI API clients, while Codex subscription access now has its own dedicated provider path.
+
 ## [0.6.0] - 2026-04-12
 
 ### Breaking Changes

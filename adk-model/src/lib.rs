@@ -11,6 +11,7 @@
 //!
 //! - [`GeminiModel`] - Google's Gemini models (3 Pro, 2.5 Flash, etc.)
 //! - `OpenAIClient` - OpenAI models (GPT-5, GPT-5-mini, o3, etc.) — requires `openai` feature
+//! - `CodexResponsesClient` - Codex ChatGPT-subscription access — requires `openai` feature
 //! - `AzureOpenAIClient` - Azure OpenAI Service — requires `openai` feature
 //! - `OpenAICompatible` - Any OpenAI-compatible API (xAI, Fireworks, Together, Mistral, Perplexity, Cerebras, SambaNova, or custom) — requires `openai` feature, use `OpenAICompatibleConfig` presets
 //! - `AnthropicClient` - Anthropic Claude models — requires `anthropic` feature
@@ -42,6 +43,18 @@
 //! let model = OpenAIClient::new(OpenAIConfig::new(
 //!     std::env::var("OPENAI_API_KEY").unwrap(),
 //!     "gpt-5-mini",
+//! )).unwrap();
+//! ```
+//!
+//! ### Codex
+//!
+//! ```rust,ignore
+//! use adk_model::codex::{CodexResponsesClient, CodexResponsesConfig};
+//!
+//! let model = CodexResponsesClient::new(CodexResponsesConfig::new(
+//!     std::env::var("CODEX_ACCESS_TOKEN").unwrap(),
+//!     std::env::var("CHATGPT_ACCOUNT_ID").unwrap(),
+//!     "gpt-5.2-codex",
 //! )).unwrap();
 //! ```
 //!
@@ -259,6 +272,8 @@ pub(crate) mod attachment;
 pub mod azure_ai;
 #[cfg(feature = "bedrock")]
 pub mod bedrock;
+#[cfg(feature = "openai")]
+pub mod codex;
 #[cfg(feature = "deepseek")]
 pub mod deepseek;
 #[cfg(feature = "gemini")]
@@ -293,6 +308,8 @@ pub use anthropic::AnthropicClient;
 pub use azure_ai::{AzureAIClient, AzureAIConfig};
 #[cfg(feature = "bedrock")]
 pub use bedrock::{BedrockClient, BedrockConfig};
+#[cfg(feature = "openai")]
+pub use codex::{CodexResponsesClient, CodexResponsesConfig};
 #[cfg(feature = "deepseek")]
 pub use deepseek::{DeepSeekClient, DeepSeekConfig};
 #[cfg(feature = "gemini")]

@@ -100,6 +100,14 @@ fn create_model(
             let m = adk_model::OpenAIClient::new(config)?;
             Ok(Arc::new(m))
         }
+        ModelProvider::Codex => {
+            reject_unsupported_thinking_budget(provider, thinking_budget)?;
+            let auth = setup::resolve_codex_auth()?;
+            let config =
+                adk_model::CodexResponsesConfig::new(auth.access_token, auth.account_id, model);
+            let m = adk_model::CodexResponsesClient::new(config)?;
+            Ok(Arc::new(m))
+        }
         ModelProvider::Anthropic => {
             let key = api_key.ok_or_else(|| anyhow::anyhow!("Anthropic requires an API key"))?;
             let mut config = adk_model::anthropic::AnthropicConfig::new(key, model);

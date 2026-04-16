@@ -12,6 +12,7 @@ LLM model integrations for Rust Agent Development Kit (ADK-Rust) with Gemini, Op
 
 - **Gemini** - Google's Gemini models (3 Pro, 3 Flash, 2.5 Pro, 2.5 Flash, etc.)
 - **OpenAI** - GPT-5.1, GPT-5, GPT-5 Mini, GPT-4o (legacy)
+- **Codex** - ChatGPT-subscription access to Codex models
 - **OpenRouter** - Native chat, responses, routing, discovery, and credits APIs
 - **xAI** - Grok models through the OpenAI-compatible API
 - **Anthropic** - Claude Opus 4.5, Claude Sonnet 4.5, Claude Haiku 4.5, Claude 4
@@ -94,6 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Use a platform OpenAI API key in `OPENAI_API_KEY`. ChatGPT subscriptions are billed separately from the OpenAI API, so they do not replace `OPENAI_API_KEY` for `OpenAIClient`.
+
 ### OpenRouter
 
 ```rust
@@ -174,6 +177,8 @@ For live end-to-end validation and agentic examples, see:
 
 The [Responses API](https://platform.openai.com/docs/api-reference/responses) (`/v1/responses`) is OpenAI's recommended endpoint for their latest models, including reasoning models with summaries and built-in tools.
 
+ADK's OpenAI clients use API-platform credentials. For ChatGPT-subscription access, use the dedicated Codex client instead of trying to reuse a ChatGPT subscription as an `OPENAI_API_KEY`.
+
 ```rust
 use adk_model::openai::{OpenAIResponsesClient, OpenAIResponsesConfig};
 use adk_agent::LlmAgentBuilder;
@@ -208,6 +213,21 @@ let model = OpenAIResponsesClient::new(config)?;
 ```
 
 See the [full Responses API documentation](../docs/official_docs/models/openai-responses.md) and the `examples/openai_responses/` example for a complete 7-scenario demo.
+
+### Codex ChatGPT Subscription Access
+
+Use `CodexResponsesClient` when you want a ChatGPT-backed Codex session instead of API-platform billing:
+
+```rust
+use adk_model::codex::{CodexResponsesClient, CodexResponsesConfig};
+
+let config = CodexResponsesConfig::new(
+    std::env::var("CODEX_ACCESS_TOKEN")?,
+    std::env::var("CHATGPT_ACCOUNT_ID")?,
+    "gpt-5.2-codex",
+);
+let model = CodexResponsesClient::new(config)?;
+```
 
 #### OpenAI Reasoning Effort
 

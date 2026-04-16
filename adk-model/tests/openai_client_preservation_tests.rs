@@ -46,6 +46,21 @@ mod openai_client_preservation {
             .with_retry_config(RetryConfig::disabled())
     }
 
+    /// Helper: create an `OpenAIClient` with project header set.
+    fn make_client_with_project(base_url: &str) -> OpenAIClient {
+        let config = OpenAIConfig {
+            api_key: "test-key".to_string(),
+            model: "gpt-4o".to_string(),
+            base_url: Some(base_url.to_string()),
+            organization_id: None,
+            project_id: Some("proj-test-456".to_string()),
+            reasoning_effort: None,
+        };
+        OpenAIClient::new(config)
+            .expect("client creation should succeed")
+            .with_retry_config(RetryConfig::disabled())
+    }
+
     /// Helper: build a minimal `LlmRequest`.
     fn make_request(model: &str) -> LlmRequest {
         LlmRequest::new(model, vec![Content::new("user").with_text("Hello")])
@@ -195,5 +210,49 @@ mod openai_client_preservation {
         // Verify thinking token count
         let usage = resp.usage_metadata.as_ref().expect("should have usage");
         assert_eq!(usage.thinking_token_count, Some(40));
+    }
+
+    #[tokio::test]
+    async fn request_parameters_project_header() {
+        let server = MockServer::start().await;
+
+        let body = serde_json::json!({
+            "id": "chatcmpl-3",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "ok" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&body))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = make_client_with_project(&server.uri());
+        let request = make_request("gpt-4o");
+
+        let mut stream =
+            client.generate_content(request, false).await.expect("generate_content should succeed");
+
+        while (stream.next().await).is_some() {}
+
+        let received = server.received_requests().await.unwrap();
+        assert_eq!(received.len(), 1);
+
+        let project_header = received[0]
+            .headers
+            .get("OpenAI-Project")
+            .expect("OpenAI-Project header should be present");
+        assert_eq!(
+            project_header.to_str().unwrap(),
+            "proj-test-456",
+            "project header should match"
+        );
     }
 }

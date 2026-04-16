@@ -102,6 +102,7 @@ ADK supports multiple LLM providers with a unified API:
 | Gemini | `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-pro-preview`, `gemini-3-flash-preview` | (default) |
 | OpenAI | `gpt-5`, `gpt-5-mini`, `gpt-5-nano` | `openai` |
 | OpenAI Responses API | `gpt-4.1`, `o3`, `o4-mini` | `openai` |
+| Codex | `gpt-5.2-codex`, `gpt-5.4`, `gpt-5.4-mini` | `openai` |
 | Anthropic | `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5` | `anthropic` |
 | DeepSeek | `deepseek-chat`, `deepseek-reasoner` | `deepseek` |
 | Groq | `meta-llama/llama-4-scout-17b-16e-instruct`, `llama-3.3-70b-versatile` | `groq` |
@@ -237,6 +238,10 @@ export OPENAI_API_KEY="your-api-key"
 # For Anthropic
 export ANTHROPIC_API_KEY="your-api-key"
 
+# For Codex with a ChatGPT subscription
+export CODEX_ACCESS_TOKEN="your-chatgpt-access-token"
+export CHATGPT_ACCOUNT_ID="your-chatgpt-account-id"
+
 # For DeepSeek
 export DEEPSEEK_API_KEY="your-api-key"
 
@@ -280,14 +285,15 @@ use adk_rust::run;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    // Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY
+    // Set ANTHROPIC_API_KEY, OPENAI_API_KEY,
+    // or CODEX_ACCESS_TOKEN with CHATGPT_ACCOUNT_ID, or GOOGLE_API_KEY
     let response = run("You are a helpful assistant.", "What is 2 + 2?").await?;
     println!("{response}");
     Ok(())
 }
 ```
 
-`provider_from_env()` checks env vars in order: `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `GOOGLE_API_KEY`. First match wins.
+`provider_from_env()` checks env vars in order: `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `CODEX_ACCESS_TOKEN` with `CHATGPT_ACCOUNT_ID` → `GOOGLE_API_KEY`. First match wins.
 
 ### Basic Example (Gemini)
 

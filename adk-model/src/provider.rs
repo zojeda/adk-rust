@@ -6,6 +6,7 @@ use std::str::FromStr;
 pub enum ModelProvider {
     Gemini,
     Openai,
+    Codex,
     Anthropic,
     Deepseek,
     Groq,
@@ -14,8 +15,15 @@ pub enum ModelProvider {
 
 impl ModelProvider {
     /// All providers in UI/display order.
-    pub const ALL: [Self; 6] =
-        [Self::Gemini, Self::Openai, Self::Anthropic, Self::Deepseek, Self::Groq, Self::Ollama];
+    pub const ALL: [Self; 7] = [
+        Self::Gemini,
+        Self::Openai,
+        Self::Codex,
+        Self::Anthropic,
+        Self::Deepseek,
+        Self::Groq,
+        Self::Ollama,
+    ];
 
     /// Return all providers in a stable order.
     pub const fn all() -> &'static [Self] {
@@ -27,6 +35,7 @@ impl ModelProvider {
         match self {
             Self::Gemini => "gemini",
             Self::Openai => "openai",
+            Self::Codex => "codex",
             Self::Anthropic => "anthropic",
             Self::Deepseek => "deepseek",
             Self::Groq => "groq",
@@ -39,6 +48,7 @@ impl ModelProvider {
         match self {
             Self::Gemini => "gemini-3.1-flash-lite-preview",
             Self::Openai => "gpt-5-mini",
+            Self::Codex => "gpt-5.2-codex",
             Self::Anthropic => "claude-sonnet-4-5-20250929",
             Self::Deepseek => "deepseek-chat",
             Self::Groq => "llama-3.3-70b-versatile",
@@ -51,6 +61,7 @@ impl ModelProvider {
         match self {
             Self::Gemini => "GOOGLE_API_KEY",
             Self::Openai => "OPENAI_API_KEY",
+            Self::Codex => "",
             Self::Anthropic => "ANTHROPIC_API_KEY",
             Self::Deepseek => "DEEPSEEK_API_KEY",
             Self::Groq => "GROQ_API_KEY",
@@ -68,7 +79,7 @@ impl ModelProvider {
 
     /// Whether the provider requires an API key.
     pub const fn requires_key(self) -> bool {
-        !matches!(self, Self::Ollama)
+        !matches!(self, Self::Codex | Self::Ollama)
     }
 
     /// Display name for interactive prompts and help text.
@@ -76,6 +87,7 @@ impl ModelProvider {
         match self {
             Self::Gemini => "Gemini (Google)",
             Self::Openai => "OpenAI",
+            Self::Codex => "Codex (ChatGPT subscription)",
             Self::Anthropic => "Anthropic (Claude)",
             Self::Deepseek => "DeepSeek",
             Self::Groq => "Groq",
@@ -97,6 +109,7 @@ impl FromStr for ModelProvider {
         match value {
             "gemini" => Ok(Self::Gemini),
             "openai" => Ok(Self::Openai),
+            "codex" => Ok(Self::Codex),
             "anthropic" => Ok(Self::Anthropic),
             "deepseek" => Ok(Self::Deepseek),
             "groq" => Ok(Self::Groq),

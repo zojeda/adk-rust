@@ -10,7 +10,7 @@ Command-line launcher for Rust Agent Development Kit (ADK-Rust) agents.
 
 `adk-cli` provides two things:
 
-- **`adk-rust` binary** — chat with an AI agent (6 providers), serve a web UI, or manage skills
+- **`adk-rust` binary** — chat with an AI agent (7 providers), serve a web UI, or manage skills
 - **`Launcher` library** — embed a REPL and web server into any custom agent binary
 
 ## Quick Start
@@ -37,6 +37,7 @@ adk-rust serve --port 3000
 |----------|------|---------------|---------|
 | Gemini | `--provider gemini` | `gemini-2.5-flash` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` |
 | OpenAI | `--provider openai` | `gpt-4.1` | `OPENAI_API_KEY` |
+| Codex | `--provider codex` | `gpt-5.2-codex` | `CODEX_ACCESS_TOKEN` + `CHATGPT_ACCOUNT_ID` or `codex login` |
 | Anthropic | `--provider anthropic` | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` |
 | DeepSeek | `--provider deepseek` | `deepseek-chat` | `DEEPSEEK_API_KEY` |
 | Groq | `--provider groq` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` |
@@ -47,9 +48,11 @@ adk-rust serve --port 3000
 If no provider is configured, `adk-rust` launches an interactive setup:
 
 1. Choose a provider from the menu
-2. Enter your API key (skipped for Ollama)
+2. Enter your API key when needed (skipped for Ollama and Codex)
 3. Provider and model are saved to `~/.config/adk-rust/config.json`
 4. API keys are stored in your OS credential store (Keychain, Credential Manager, Secret Service)
+
+For `--provider codex`, the CLI loads ChatGPT-backed credentials from your existing Codex login state or from `CODEX_ACCESS_TOKEN` plus `CHATGPT_ACCOUNT_ID`.
 
 On subsequent runs, the saved config is used automatically. CLI flags always
 take priority over environment variables, secure credential storage, and saved config.

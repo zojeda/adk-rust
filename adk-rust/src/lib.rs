@@ -856,7 +856,8 @@ pub mod anthropic_client {
 ///
 /// 1. `ANTHROPIC_API_KEY` → Anthropic (Claude)
 /// 2. `OPENAI_API_KEY` → OpenAI
-/// 3. `GOOGLE_API_KEY` → Gemini
+/// 3. `CODEX_ACCESS_TOKEN` + `CHATGPT_ACCOUNT_ID` → Codex (ChatGPT subscription)
+/// 4. `GOOGLE_API_KEY` → Gemini
 ///
 /// # Errors
 ///
@@ -884,6 +885,16 @@ pub fn provider_from_env() -> Result<std::sync::Arc<dyn Llm>> {
             let config = model::openai::OpenAIConfig::new(key, "gpt-4o-mini");
             return Ok(std::sync::Arc::new(model::openai::OpenAIClient::new(config)?));
         }
+
+        if let (Ok(access_token), Ok(account_id)) =
+            (std::env::var("CODEX_ACCESS_TOKEN"), std::env::var("CHATGPT_ACCOUNT_ID"))
+            && !access_token.trim().is_empty()
+            && !account_id.trim().is_empty()
+        {
+            let config =
+                model::codex::CodexResponsesConfig::new(access_token, account_id, "gpt-5.2-codex");
+            return Ok(std::sync::Arc::new(model::codex::CodexResponsesClient::new(config)?));
+        }
     }
 
     #[cfg(feature = "gemini")]
@@ -894,7 +905,7 @@ pub fn provider_from_env() -> Result<std::sync::Arc<dyn Llm>> {
     }
 
     Err(AdkError::config(
-        "No LLM provider detected. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY",
+        "No LLM provider detected. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, CODEX_ACCESS_TOKEN with CHATGPT_ACCOUNT_ID, or GOOGLE_API_KEY",
     ))
 }
 
@@ -960,6 +971,22 @@ pub async fn run(instructions: &str, input: &str) -> Result<String> {
                     result = Some((Arc::new(m), None));
                 }
             }
+
+            if result.is_none() {
+                if let (Ok(access_token), Ok(account_id)) =
+                    (std::env::var("CODEX_ACCESS_TOKEN"), std::env::var("CHATGPT_ACCOUNT_ID"))
+                    && !access_token.trim().is_empty()
+                    && !account_id.trim().is_empty()
+                {
+                    let config = model::codex::CodexResponsesConfig::new(
+                        access_token,
+                        account_id,
+                        "gpt-5.2-codex",
+                    );
+                    let m = model::codex::CodexResponsesClient::new(config)?;
+                    result = Some((Arc::new(m), None));
+                }
+            }
         }
 
         #[cfg(feature = "gemini")]
@@ -975,7 +1002,7 @@ pub async fn run(instructions: &str, input: &str) -> Result<String> {
 
         result.ok_or_else(|| {
             AdkError::config(
-                "No LLM provider detected. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY",
+                "No LLM provider detected. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, CODEX_ACCESS_TOKEN with CHATGPT_ACCOUNT_ID, or GOOGLE_API_KEY",
             )
         })?
     };

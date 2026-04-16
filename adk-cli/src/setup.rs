@@ -7,10 +7,15 @@ use adk_model::ModelProvider as Provider;
 use anyhow::{Context, Result};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::io::{self, Write};
+use std::path::Path;
 use std::path::PathBuf;
 
 const KEYRING_SERVICE: &str = "adk-rust";
+const CODEX_KEYRING_SERVICE: &str = "Codex Auth";
+const CODEX_ACCESS_TOKEN_ENV_VAR: &str = "CODEX_ACCESS_TOKEN";
+const CHATGPT_ACCOUNT_ID_ENV_VAR: &str = "CHATGPT_ACCOUNT_ID";
 
 /// Persisted CLI configuration.
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -99,6 +104,14 @@ pub struct ResolvedConfig {
     pub model: String,
     pub api_key: Option<String>,
     pub instruction: String,
+}
+
+/// Resolved ChatGPT-backed Codex credentials.
+pub struct ResolvedCodexAuth {
+    /// Bearer token issued by ChatGPT/Codex auth.
+    pub access_token: String,
+    /// ChatGPT workspace/account id used by the Codex backend.
+    pub account_id: String,
 }
 
 pub fn resolve(
@@ -203,6 +216,118 @@ where
     Ok(legacy_api_key)
 }
 
+#[derive(Debug, Deserialize)]
+struct CodexAuthRecord {
+    tokens: Option<CodexTokens>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexTokens {
+    access_token: String,
+    account_id: Option<String>,
+}
+
+/// Resolve Codex ChatGPT-backed credentials from environment variables,
+/// the Codex secure store, or `~/.codex/auth.json`.
+pub fn resolve_codex_auth() -> Result<ResolvedCodexAuth> {
+    let env_access_token = std::env::var(CODEX_ACCESS_TOKEN_ENV_VAR).ok();
+    let env_account_id = std::env::var(CHATGPT_ACCOUNT_ID_ENV_VAR).ok();
+
+    match (env_access_token, env_account_id) {
+        (Some(access_token), Some(account_id))
+            if !access_token.trim().is_empty() && !account_id.trim().is_empty() =>
+        {
+            return Ok(ResolvedCodexAuth { access_token, account_id });
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(anyhow::anyhow!(
+                "Codex subscription auth requires both {CODEX_ACCESS_TOKEN_ENV_VAR} and {CHATGPT_ACCOUNT_ID_ENV_VAR}"
+            ));
+        }
+        _ => {}
+    }
+
+    let codex_home = codex_home_path()?;
+    let auth = match load_codex_auth_from_keyring(&codex_home) {
+        Ok(Some(auth)) => Some(auth),
+        Ok(None) | Err(_) => load_codex_auth_from_file(&codex_home)?,
+    };
+    if let Some(auth) = auth {
+        return Ok(auth);
+    }
+
+    Err(anyhow::anyhow!(
+        "No Codex ChatGPT credentials found. Run `codex login` first, or set {CODEX_ACCESS_TOKEN_ENV_VAR} and {CHATGPT_ACCOUNT_ID_ENV_VAR}."
+    ))
+}
+
+fn codex_home_path() -> Result<PathBuf> {
+    if let Ok(codex_home) = std::env::var("CODEX_HOME")
+        && !codex_home.trim().is_empty()
+    {
+        return Ok(PathBuf::from(codex_home));
+    }
+
+    let home = dirs::home_dir().context("could not determine home directory for Codex auth")?;
+    Ok(home.join(".codex"))
+}
+
+fn load_codex_auth_from_keyring(codex_home: &Path) -> Result<Option<ResolvedCodexAuth>> {
+    let key = codex_keyring_store_key(codex_home)?;
+    let entry = Entry::new(CODEX_KEYRING_SERVICE, &key)
+        .with_context(|| "failed to initialize Codex secure credential storage".to_string())?;
+    match entry.get_password() {
+        Ok(serialized) => parse_codex_auth_json(&serialized),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(err) => Err(anyhow::anyhow!(
+            "failed to load Codex ChatGPT credentials from secure storage: {err}"
+        )),
+    }
+}
+
+fn load_codex_auth_from_file(codex_home: &Path) -> Result<Option<ResolvedCodexAuth>> {
+    let auth_path = codex_home.join("auth.json");
+    let contents = match std::fs::read_to_string(&auth_path) {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(anyhow::anyhow!(
+                "failed to read Codex auth file {}: {err}",
+                auth_path.display()
+            ));
+        }
+    };
+
+    parse_codex_auth_json(&contents)
+}
+
+fn parse_codex_auth_json(contents: &str) -> Result<Option<ResolvedCodexAuth>> {
+    let record: CodexAuthRecord =
+        serde_json::from_str(contents).context("failed to parse Codex auth payload")?;
+    let Some(tokens) = record.tokens else {
+        return Ok(None);
+    };
+    let Some(account_id) = tokens.account_id else {
+        return Ok(None);
+    };
+
+    if tokens.access_token.trim().is_empty() || account_id.trim().is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(ResolvedCodexAuth { access_token: tokens.access_token, account_id }))
+}
+
+fn codex_keyring_store_key(codex_home: &Path) -> Result<String> {
+    let canonical = codex_home.canonicalize().unwrap_or_else(|_| codex_home.to_path_buf());
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let digest = hasher.finalize();
+    let hex = format!("{digest:x}");
+    let truncated = hex.get(..16).unwrap_or(&hex);
+    Ok(format!("cli|{truncated}"))
+}
+
 /// Interactive first-run setup.
 fn interactive_setup(cli_instruction: Option<String>) -> Result<ResolvedConfig> {
     println!();
@@ -229,6 +354,12 @@ fn interactive_setup(cli_instruction: Option<String>) -> Result<ResolvedConfig> 
     };
 
     let model = provider.default_model().to_string();
+
+    if provider == Provider::Codex {
+        println!();
+        println!("  Codex uses your ChatGPT subscription via Codex auth.");
+        println!("  Run `codex login` if you have not signed in yet.");
+    }
 
     let api_key = if provider.requires_key() { Some(prompt_api_key(provider)?) } else { None };
 
@@ -260,6 +391,10 @@ fn prompt_api_key(provider: Provider) -> Result<String> {
     let env_hint = provider.env_var();
     println!();
     println!("  {} requires an API key.", provider.display_name());
+    if provider == Provider::Openai {
+        println!("  Use a platform.openai.com API key here.");
+        println!("  ChatGPT subscriptions do not provide API credentials.");
+    }
     println!("  (You can also set {} in your environment.)", env_hint);
     println!();
 
@@ -295,7 +430,7 @@ provides, and ground your answers in real sources."
 
 #[cfg(test)]
 mod tests {
-    use super::{CliConfig, resolve_api_key_sources};
+    use super::{CliConfig, parse_codex_auth_json, resolve_api_key_sources};
     use anyhow::Result;
     use std::sync::{
         Arc,
@@ -346,5 +481,22 @@ mod tests {
 
         assert_eq!(key.as_deref(), Some("cli-key"));
         assert!(!keyring_called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn parses_codex_auth_payload() {
+        let auth = parse_codex_auth_json(
+            r#"{
+                "tokens": {
+                    "access_token": "chatgpt-token",
+                    "account_id": "workspace_123"
+                }
+            }"#,
+        )
+        .expect("codex auth payload should parse")
+        .expect("codex auth should be present");
+
+        assert_eq!(auth.access_token, "chatgpt-token");
+        assert_eq!(auth.account_id, "workspace_123");
     }
 }

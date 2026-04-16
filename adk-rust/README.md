@@ -89,14 +89,15 @@ use adk_rust::run;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    // Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY
+    // Set ANTHROPIC_API_KEY, OPENAI_API_KEY,
+    // or CODEX_ACCESS_TOKEN with CHATGPT_ACCOUNT_ID, or GOOGLE_API_KEY
     let response = run("You are a helpful assistant.", "What is Rust?").await?;
     println!("{response}");
     Ok(())
 }
 ```
 
-`provider_from_env()` checks `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `GOOGLE_API_KEY` in order.
+`provider_from_env()` checks `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `CODEX_ACCESS_TOKEN` with `CHATGPT_ACCOUNT_ID` → `GOOGLE_API_KEY` in order.
 
 ## Adding Tools
 

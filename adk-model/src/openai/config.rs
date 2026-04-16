@@ -1,6 +1,7 @@
 //! Configuration types for OpenAI providers.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Reasoning effort level for OpenAI reasoning models (e.g., o1, o3).
 ///
@@ -164,6 +165,12 @@ pub struct OpenAIResponsesConfig {
     /// Optional custom base URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// Provider label used for telemetry and error reporting.
+    #[serde(default = "default_openai_responses_provider_name")]
+    pub provider_name: String,
+    /// Additional headers included in every request.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub custom_headers: HashMap<String, String>,
     /// Reasoning effort for o-series models.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
@@ -181,6 +188,8 @@ impl OpenAIResponsesConfig {
             organization_id: None,
             project_id: None,
             base_url: None,
+            provider_name: default_openai_responses_provider_name(),
+            custom_headers: HashMap::new(),
             reasoning_effort: None,
             reasoning_summary: None,
         }
@@ -207,6 +216,22 @@ impl OpenAIResponsesConfig {
         self
     }
 
+    /// Set the provider label used for telemetry and error reporting.
+    #[must_use]
+    pub fn with_provider_name(mut self, provider_name: impl Into<String>) -> Self {
+        self.provider_name = provider_name.into();
+        self
+    }
+
+    /// Add a custom header included in every request.
+    ///
+    /// Existing values for the same header name are replaced.
+    #[must_use]
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.custom_headers.insert(name.into(), value.into());
+        self
+    }
+
     /// Set the reasoning effort for o-series models.
     #[must_use]
     pub fn with_reasoning_effort(mut self, effort: ReasoningEffort) -> Self {
@@ -220,4 +245,8 @@ impl OpenAIResponsesConfig {
         self.reasoning_summary = Some(summary);
         self
     }
+}
+
+fn default_openai_responses_provider_name() -> String {
+    "openai-responses".to_string()
 }

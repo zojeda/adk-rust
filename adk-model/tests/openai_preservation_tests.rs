@@ -39,6 +39,17 @@ mod preservation {
             .with_retry_config(RetryConfig::disabled())
     }
 
+    /// Helper: create a client with project header set.
+    fn make_client_with_project(base_url: &str) -> OpenAICompatible {
+        let config = OpenAICompatibleConfig::new("test-key", "gpt-4o")
+            .with_provider_name("test")
+            .with_base_url(base_url)
+            .with_project("proj-test-123");
+        OpenAICompatible::new(config)
+            .expect("client creation should succeed")
+            .with_retry_config(RetryConfig::disabled())
+    }
+
     /// Helper: create a client with reasoning effort set.
     fn make_reasoning_client(base_url: &str) -> OpenAICompatible {
         let config = OpenAICompatibleConfig::new("test-key", "o3")
@@ -587,6 +598,50 @@ mod preservation {
             org_header.to_str().unwrap(),
             "org-test-123",
             "organization header should match"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_parameters_project_header() {
+        let server = MockServer::start().await;
+
+        let body = serde_json::json!({
+            "id": "chatcmpl-5b",
+            "object": "chat.completion",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "ok" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        });
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&body))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = make_client_with_project(&server.uri());
+        let request = make_request();
+
+        let mut stream =
+            client.generate_content(request, false).await.expect("generate_content should succeed");
+
+        while (stream.next().await).is_some() {}
+
+        let received = server.received_requests().await.unwrap();
+        assert_eq!(received.len(), 1);
+
+        let project_header = received[0]
+            .headers
+            .get("OpenAI-Project")
+            .expect("OpenAI-Project header should be present");
+        assert_eq!(
+            project_header.to_str().unwrap(),
+            "proj-test-123",
+            "project header should match"
         );
     }
 

@@ -156,6 +156,7 @@ pub struct OpenAICompatible {
     retry_config: RetryConfig,
     reasoning_effort: Option<ReasoningEffort>,
     organization_id: Option<String>,
+    project_id: Option<String>,
 }
 
 impl OpenAICompatible {
@@ -172,6 +173,7 @@ impl OpenAICompatible {
             retry_config: RetryConfig::default(),
             reasoning_effort: config.reasoning_effort,
             organization_id: config.organization_id,
+            project_id: config.project_id,
         })
     }
 
@@ -279,6 +281,7 @@ async fn send_request(
     url: &str,
     api_key: &str,
     organization_id: &Option<String>,
+    project_id: &Option<String>,
     body: &serde_json::Value,
     provider_name: &str,
 ) -> Result<reqwest::Response, AdkError> {
@@ -286,6 +289,9 @@ async fn send_request(
 
     if let Some(org_id) = organization_id {
         http_req = http_req.header("OpenAI-Organization", org_id);
+    }
+    if let Some(project_id) = project_id {
+        http_req = http_req.header("OpenAI-Project", project_id);
     }
 
     let http_resp = http_req.send().await.map_err(|e| {
@@ -391,6 +397,7 @@ impl Llm for OpenAICompatible {
         let request_for_retry = request.clone();
         let reasoning_effort = self.reasoning_effort.clone();
         let organization_id = self.organization_id.clone();
+        let project_id = self.project_id.clone();
 
         let usage_span = adk_telemetry::llm_generate_span(&provider_name, &model, stream);
 
@@ -415,10 +422,20 @@ impl Llm for OpenAICompatible {
                     let url = url.clone();
                     let api_key = api_key.clone();
                     let organization_id = organization_id.clone();
+                    let project_id = project_id.clone();
                     let body = body.clone();
                     let provider_name = provider_name.clone();
                     async move {
-                        send_request(&http, &url, &api_key, &organization_id, &body, &provider_name).await
+                        send_request(
+                            &http,
+                            &url,
+                            &api_key,
+                            &organization_id,
+                            &project_id,
+                            &body,
+                            &provider_name,
+                        )
+                        .await
                     }
                 })
                 .await?;
@@ -642,13 +659,21 @@ impl Llm for OpenAICompatible {
                     let request = request_for_retry.clone();
                     let reasoning_effort = reasoning_effort.clone();
                     let organization_id = organization_id.clone();
+                    let project_id = project_id.clone();
                     async move {
                         let body = build_request_json(&model, &request, &reasoning_effort)?;
 
                         let url = format!("{base_url}/chat/completions");
-                        let http_resp =
-                            send_request(&http, &url, &api_key, &organization_id, &body, &provider_name)
-                                .await?;
+                        let http_resp = send_request(
+                            &http,
+                            &url,
+                            &api_key,
+                            &organization_id,
+                            &project_id,
+                            &body,
+                            &provider_name,
+                        )
+                        .await?;
 
                         let raw_json: serde_json::Value = http_resp.json().await.map_err(|e| {
                             AdkError::new(

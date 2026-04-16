@@ -59,7 +59,11 @@ export OPENAI_API_KEY="your-key"      # OpenAI
 export ANTHROPIC_API_KEY="your-key"   # Anthropic
 export DEEPSEEK_API_KEY="your-key"    # DeepSeek
 export GROQ_API_KEY="your-key"        # Groq
+export CODEX_ACCESS_TOKEN="..."       # Codex (ChatGPT subscription)
+export CHATGPT_ACCOUNT_ID="..."       # Codex workspace/account id
 ```
+
+`OPENAI_API_KEY` is still required for OpenAI API clients. ChatGPT subscription access is a separate Codex path and uses `CODEX_ACCESS_TOKEN` plus `CHATGPT_ACCOUNT_ID`.
 
 ---
 

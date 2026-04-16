@@ -10,6 +10,7 @@ use adk_core::{
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt;
+use reqwest::header::HeaderName;
 
 /// Client for the OpenAI Responses API (`/responses` endpoint).
 ///
@@ -28,6 +29,7 @@ use futures::StreamExt;
 pub struct OpenAIResponsesClient {
     client: async_openai::Client<async_openai::config::OpenAIConfig>,
     model: String,
+    provider_name: String,
     reasoning_effort: Option<ReasoningEffort>,
     reasoning_summary: Option<ReasoningSummary>,
     retry_config: RetryConfig,
@@ -47,7 +49,7 @@ impl OpenAIResponsesClient {
                 "model.openai_responses.invalid_config",
                 "OpenAI Responses API key must not be empty",
             )
-            .with_provider("openai-responses"));
+            .with_provider(&config.provider_name));
         }
 
         let mut openai_config =
@@ -55,14 +57,39 @@ impl OpenAIResponsesClient {
         if let Some(org_id) = &config.organization_id {
             openai_config = openai_config.with_org_id(org_id);
         }
+        if let Some(project_id) = &config.project_id {
+            openai_config = openai_config.with_project_id(project_id);
+        }
         if let Some(base_url) = &config.base_url {
             openai_config = openai_config.with_api_base(base_url);
+        }
+        for (name, value) in &config.custom_headers {
+            let header_name = HeaderName::from_bytes(name.as_bytes()).map_err(|err| {
+                AdkError::new(
+                    ErrorComponent::Model,
+                    ErrorCategory::InvalidInput,
+                    "model.openai_responses.invalid_header",
+                    format!("invalid header for {}: {err}", config.provider_name.as_str()),
+                )
+                .with_provider(&config.provider_name)
+            })?;
+            openai_config =
+                openai_config.with_header(header_name, value.clone()).map_err(|err| {
+                    AdkError::new(
+                        ErrorComponent::Model,
+                        ErrorCategory::InvalidInput,
+                        "model.openai_responses.invalid_header",
+                        format!("invalid header for {}: {err}", config.provider_name.as_str()),
+                    )
+                    .with_provider(&config.provider_name)
+                })?;
         }
         let client = async_openai::Client::with_config(openai_config);
 
         Ok(Self {
             client,
             model: config.model,
+            provider_name: config.provider_name,
             reasoning_effort: config.reasoning_effort,
             reasoning_summary: config.reasoning_summary,
             retry_config: RetryConfig::default(),
@@ -88,7 +115,7 @@ impl OpenAIResponsesClient {
 }
 
 /// Map an `async_openai::error::OpenAIError` to an `AdkError`.
-fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError {
+fn map_openai_error(provider_name: &str, e: async_openai::error::OpenAIError) -> AdkError {
     let error_string = e.to_string();
 
     if let async_openai::error::OpenAIError::ApiError(ref api_err) = e {
@@ -117,9 +144,9 @@ fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError {
             ErrorComponent::Model,
             category,
             code,
-            format!("OpenAI Responses API error: {api_err}"),
+            format!("{provider_name} error: {api_err}"),
         )
-        .with_provider("openai-responses");
+        .with_provider(provider_name);
         if let Some(sc) = status {
             err = err.with_upstream_status(sc);
         }
@@ -132,9 +159,9 @@ fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError {
             ErrorComponent::Model,
             ErrorCategory::Unavailable,
             "model.openai_responses.request",
-            format!("OpenAI Responses API network error: {error_string}"),
+            format!("{provider_name} network error: {error_string}"),
         )
-        .with_provider("openai-responses");
+        .with_provider(provider_name);
     }
 
     // Stream errors → Unavailable
@@ -143,9 +170,9 @@ fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError {
             ErrorComponent::Model,
             ErrorCategory::Unavailable,
             "model.openai_responses.stream",
-            format!("OpenAI Responses API stream error: {error_string}"),
+            format!("{provider_name} stream error: {error_string}"),
         )
-        .with_provider("openai-responses");
+        .with_provider(provider_name);
     }
 
     // JSON deserialization → Internal
@@ -154,9 +181,9 @@ fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError {
             ErrorComponent::Model,
             ErrorCategory::Internal,
             "model.openai_responses.parse",
-            format!("OpenAI Responses API parse error: {error_string}"),
+            format!("{provider_name} parse error: {error_string}"),
         )
-        .with_provider("openai-responses");
+        .with_provider(provider_name);
     }
 
     // Fallback
@@ -164,9 +191,9 @@ fn map_openai_error(e: async_openai::error::OpenAIError) -> AdkError {
         ErrorComponent::Model,
         ErrorCategory::Internal,
         "model.openai_responses.unknown",
-        format!("OpenAI Responses API error: {error_string}"),
+        format!("{provider_name} error: {error_string}"),
     )
-    .with_provider("openai-responses")
+    .with_provider(provider_name)
 }
 
 #[async_trait]
@@ -180,7 +207,8 @@ impl Llm for OpenAIResponsesClient {
         request: LlmRequest,
         stream: bool,
     ) -> Result<LlmResponseStream, AdkError> {
-        let usage_span = adk_telemetry::llm_generate_span("openai-responses", &self.model, stream);
+        let provider_name = self.provider_name.clone();
+        let usage_span = adk_telemetry::llm_generate_span(&provider_name, &self.model, stream);
 
         let create_request = responses_convert::build_create_response(
             &self.model,
@@ -203,115 +231,118 @@ impl Llm for OpenAIResponsesClient {
                 .responses()
                 .create_stream(create_request)
                 .await
-                .map_err(map_openai_error)?;
+                .map_err(|err| map_openai_error(&provider_name, err))?;
 
-            let response_stream = event_stream.filter_map(|event_result| async {
-                match event_result {
-                    Ok(event) => {
-                        use async_openai::types::responses::ResponseStreamEvent;
-                        match event {
-                            ResponseStreamEvent::ResponseOutputTextDelta(evt) => {
-                                Some(Ok(LlmResponse {
-                                    content: Some(Content {
-                                        role: "model".to_string(),
-                                        parts: vec![Part::Text { text: evt.delta }],
-                                    }),
-                                    partial: true,
-                                    turn_complete: false,
-                                    ..Default::default()
-                                }))
-                            }
+            let response_stream = event_stream.filter_map(move |event_result| {
+                let provider_name = provider_name.clone();
+                async move {
+                    match event_result {
+                        Ok(event) => {
+                            use async_openai::types::responses::ResponseStreamEvent;
+                            match event {
+                                ResponseStreamEvent::ResponseOutputTextDelta(evt) => {
+                                    Some(Ok(LlmResponse {
+                                        content: Some(Content {
+                                            role: "model".to_string(),
+                                            parts: vec![Part::Text { text: evt.delta }],
+                                        }),
+                                        partial: true,
+                                        turn_complete: false,
+                                        ..Default::default()
+                                    }))
+                                }
 
-                            ResponseStreamEvent::ResponseReasoningSummaryTextDelta(evt) => {
-                                Some(Ok(LlmResponse {
-                                    content: Some(Content {
-                                        role: "model".to_string(),
-                                        parts: vec![Part::Thinking {
-                                            thinking: evt.delta,
-                                            signature: None,
-                                        }],
-                                    }),
-                                    partial: true,
-                                    turn_complete: false,
-                                    ..Default::default()
-                                }))
-                            }
+                                ResponseStreamEvent::ResponseReasoningSummaryTextDelta(evt) => {
+                                    Some(Ok(LlmResponse {
+                                        content: Some(Content {
+                                            role: "model".to_string(),
+                                            parts: vec![Part::Thinking {
+                                                thinking: evt.delta,
+                                                signature: None,
+                                            }],
+                                        }),
+                                        partial: true,
+                                        turn_complete: false,
+                                        ..Default::default()
+                                    }))
+                                }
 
-                            // ResponseCompleted carries the authoritative response with
-                            // correct function call names, usage, and finish reason.
-                            // We extract only function calls (text was already streamed
-                            // via delta events) and mark the turn complete.
-                            ResponseStreamEvent::ResponseCompleted(evt) => {
-                                let full = responses_convert::from_response(&evt.response);
-                                // Extract only non-textual protocol parts (text/thinking were already
-                                // streamed via delta events, but tool protocol items need to survive).
-                                let trailing_parts: Vec<Part> = full
-                                    .content
-                                    .as_ref()
-                                    .map(|c| {
-                                        c.parts
-                                            .iter()
-                                            .filter(|part| {
-                                                !matches!(
-                                                    part,
-                                                    Part::Text { .. } | Part::Thinking { .. }
-                                                )
-                                            })
-                                            .cloned()
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
+                                // ResponseCompleted carries the authoritative response with
+                                // correct function call names, usage, and finish reason.
+                                // We extract only function calls (text was already streamed
+                                // via delta events) and mark the turn complete.
+                                ResponseStreamEvent::ResponseCompleted(evt) => {
+                                    let full = responses_convert::from_response(&evt.response);
+                                    // Extract only non-textual protocol parts (text/thinking were already
+                                    // streamed via delta events, but tool protocol items need to survive).
+                                    let trailing_parts: Vec<Part> = full
+                                        .content
+                                        .as_ref()
+                                        .map(|c| {
+                                            c.parts
+                                                .iter()
+                                                .filter(|part| {
+                                                    !matches!(
+                                                        part,
+                                                        Part::Text { .. } | Part::Thinking { .. }
+                                                    )
+                                                })
+                                                .cloned()
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
 
-                                let content = if trailing_parts.is_empty() {
-                                    None
-                                } else {
-                                    Some(Content {
-                                        role: "model".to_string(),
-                                        parts: trailing_parts,
-                                    })
-                                };
-
-                                Some(Ok(LlmResponse {
-                                    content,
-                                    usage_metadata: full.usage_metadata,
-                                    finish_reason: full.finish_reason,
-                                    provider_metadata: full.provider_metadata,
-                                    partial: false,
-                                    turn_complete: true,
-                                    ..Default::default()
-                                }))
-                            }
-
-                            ResponseStreamEvent::ResponseFailed(evt) => {
-                                let (error_code, error_message) =
-                                    if let Some(err) = &evt.response.error {
-                                        (Some(err.code.clone()), Some(err.message.clone()))
+                                    let content = if trailing_parts.is_empty() {
+                                        None
                                     } else {
-                                        (
-                                            Some("unknown".to_string()),
-                                            Some("Response failed".to_string()),
-                                        )
+                                        Some(Content {
+                                            role: "model".to_string(),
+                                            parts: trailing_parts,
+                                        })
                                     };
-                                Some(Ok(LlmResponse {
-                                    error_code,
-                                    error_message,
+
+                                    Some(Ok(LlmResponse {
+                                        content,
+                                        usage_metadata: full.usage_metadata,
+                                        finish_reason: full.finish_reason,
+                                        provider_metadata: full.provider_metadata,
+                                        partial: false,
+                                        turn_complete: true,
+                                        ..Default::default()
+                                    }))
+                                }
+
+                                ResponseStreamEvent::ResponseFailed(evt) => {
+                                    let (error_code, error_message) =
+                                        if let Some(err) = &evt.response.error {
+                                            (Some(err.code.clone()), Some(err.message.clone()))
+                                        } else {
+                                            (
+                                                Some("unknown".to_string()),
+                                                Some("Response failed".to_string()),
+                                            )
+                                        };
+                                    Some(Ok(LlmResponse {
+                                        error_code,
+                                        error_message,
+                                        turn_complete: true,
+                                        ..Default::default()
+                                    }))
+                                }
+
+                                ResponseStreamEvent::ResponseError(evt) => Some(Ok(LlmResponse {
+                                    error_code: evt.code.or_else(|| Some("error".to_string())),
+                                    error_message: Some(evt.message),
                                     turn_complete: true,
                                     ..Default::default()
-                                }))
+                                })),
+
+                                // Skip all other events
+                                _ => None,
                             }
-
-                            ResponseStreamEvent::ResponseError(evt) => Some(Ok(LlmResponse {
-                                error_code: evt.code.or_else(|| Some("error".to_string())),
-                                error_message: Some(evt.message),
-                                turn_complete: true,
-                                ..Default::default()
-                            })),
-
-                            // Skip all other events
-                            _ => None,
                         }
+                        Err(e) => Some(Err(map_openai_error(&provider_name, e))),
                     }
-                    Err(e) => Some(Err(map_openai_error(e))),
                 }
             });
 
@@ -326,6 +357,7 @@ impl Llm for OpenAIResponsesClient {
             // Non-streaming path
             let client = self.client.clone();
             let retry_config = self.retry_config.clone();
+            let provider_name = provider_name.clone();
 
             let response_stream = try_stream! {
                 let response = execute_with_retry(
@@ -334,12 +366,13 @@ impl Llm for OpenAIResponsesClient {
                     || {
                         let client = client.clone();
                         let req = create_request.clone();
+                        let provider_name = provider_name.clone();
                         async move {
                             client
                                 .responses()
                                 .create(req)
                                 .await
-                                .map_err(map_openai_error)
+                                .map_err(|err| map_openai_error(&provider_name, err))
                         }
                     },
                 )

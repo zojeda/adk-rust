@@ -1,30 +1,29 @@
 #[cfg(feature = "openai")]
-mod responses_client_integration {
+mod codex_responses_client_integration {
     use adk_core::{Content, Llm, LlmRequest};
-    use adk_model::openai::{OpenAIResponsesClient, OpenAIResponsesConfig};
+    use adk_model::codex::{CHATGPT_ACCOUNT_ID_HEADER, CodexResponsesClient, CodexResponsesConfig};
     use adk_model::retry::RetryConfig;
     use futures::StreamExt;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn make_client(base_url: &str) -> OpenAIResponsesClient {
-        let config = OpenAIResponsesConfig::new("test-key", "gpt-4.1-mini")
-            .with_base_url(base_url)
-            .with_project("proj-test-789");
-        OpenAIResponsesClient::new(config)
+    fn make_client(base_url: &str) -> CodexResponsesClient {
+        let config = CodexResponsesConfig::new("chatgpt-token", "workspace_123", "gpt-5.2-codex")
+            .with_base_url(base_url);
+        CodexResponsesClient::new(config)
             .expect("client creation should succeed")
             .with_retry_config(RetryConfig::disabled())
     }
 
     #[tokio::test]
-    async fn request_parameters_project_header() {
+    async fn request_parameters_chatgpt_account_header() {
         let server = MockServer::start().await;
 
         Mock::given(method("POST"))
             .and(path("/responses"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "id": "resp_1",
-                "model": "gpt-4.1-mini",
+                "model": "gpt-5.2-codex",
                 "status": "completed",
                 "output": [
                     {
@@ -48,7 +47,7 @@ mod responses_client_integration {
 
         let client = make_client(&server.uri());
         let request =
-            LlmRequest::new("gpt-4.1-mini", vec![Content::new("user").with_text("hello")]);
+            LlmRequest::new("gpt-5.2-codex", vec![Content::new("user").with_text("hello")]);
 
         let mut stream =
             client.generate_content(request, false).await.expect("generate_content should succeed");
@@ -58,14 +57,14 @@ mod responses_client_integration {
         let received = server.received_requests().await.unwrap();
         assert_eq!(received.len(), 1);
 
-        let project_header = received[0]
+        let account_header = received[0]
             .headers
-            .get("OpenAI-Project")
-            .expect("OpenAI-Project header should be present");
+            .get(CHATGPT_ACCOUNT_ID_HEADER)
+            .expect("ChatGPT-Account-ID header should be present");
         assert_eq!(
-            project_header.to_str().unwrap(),
-            "proj-test-789",
-            "project header should match"
+            account_header.to_str().unwrap(),
+            "workspace_123",
+            "account header should match"
         );
     }
 }

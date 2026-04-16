@@ -69,6 +69,8 @@ Set your API key:
 export OPENAI_API_KEY="sk-..."
 ```
 
+`OPENAI_API_KEY` must be a platform API key. ChatGPT subscriptions and API billing are separate, so a ChatGPT Plus or Pro subscription does not replace API credentials for `OpenAIResponsesClient`. If you want ChatGPT-backed model access, use ADK's dedicated `CodexResponsesClient` path instead of treating a subscription like an OpenAI API key.
+
 ---
 
 ## Quick Start
