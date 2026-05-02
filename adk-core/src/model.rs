@@ -18,7 +18,6 @@ pub struct LlmRequest {
     pub model: String,
     pub contents: Vec<Content>,
     pub config: Option<GenerateContentConfig>,
-    #[serde(skip)]
     pub tools: HashMap<String, serde_json::Value>,
 }
 
